@@ -7,7 +7,7 @@
 
 ## Схема сети:
 
-![alt text](http://url/to/img.png)
+![alt text](https://github.com/aleti000/mdk01.02/blob/main/pic/network.jpg)
 
 ## Таблица адресации:
 
