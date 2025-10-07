@@ -11,17 +11,17 @@
 
 ## Таблица адресации:
 
-  Устройство |  Интерфейс   |  ip-адрес
-  -----------|--------------|-----------------
-  |gateway    |  to-internet |  DHCP|
-  |          | to-hq         |  172.16.254.0/30|
-  |          |   to-br       |  172.16.254.4/30|
-  |hq-rtr     |  to-gw       |  172.16.254.0/30|
-  |            | to-cli      |  192.168.253.0/24|
-  |br-rtr      | to-gw       |  172.16.254.4/30|
-  |            | to-br-srv   |  192.168.252.0/24|
-  |hq-cli      | to-hq-rtr  |   DHCP|
-  |br-srv   |to-br-rtr  | 192.168.252.0/24|
+  Устройство |  Интерфейс    |  ip-адрес
+  -----------|---------------|-----------------
+  |gateway     | ens19       |  DHCP             |
+  |            | ens20       |  172.16.254.1/30  |
+  |            | ens21       |  172.16.254.5/30  |
+  |hq-rtr      | te0         |  172.16.254.2/30  |
+  |            | te1         |  192.168.253.1/24 |
+  |br-rtr      | te0         |  172.16.254.6/30  |
+  |            | te1         |  192.168.252.1/24 |
+  |hq-cli      | ens19       |  DHCP             |
+  |br-srv      | ens19       |  DHCP static (192.168.252.2)      |
 
 ## Задачи лабораторной работы:
 
@@ -32,57 +32,95 @@
 
 ## Ход выполнения работы:
 
-### Шаг 1. Подготовка к работе
+### Шаг 1. Выполним настройку правой части сети: офиса BR
 
-1.1. Изучить документацию по командам EcoRouter
-1.2. Подготовить схему сети согласно таблице адресации
-1.3. Войти в режим конфигурации маршрутизатора
+#### Шаг 1.1 Настроим gateway для части сети br:
 
-### Шаг 2. Настройка базовой конфигурации
+Прежде всего зададим имя устройству в соответствии со схемой:
+
+```bash
+hostnamectl set-hostname gateway
+```
+Вначале настроим интерфейс доступа к интернету (ens19). Он не создан, создам его:
+
+```bash
+cd /etc/net/ifaces/
+cp -R ens18/ ens19
+systemctl restart network
+```
+
+Проверить получения ip-адреса на интерфейсе ens19:
+
+```bash
+ip -br -c a
+```
+
+Настроим интерфейс в сторону **br-rtr**:
+
+```bash
+cp -R ens18 ens21
+cd ens21
+echo TYPE=eth > options
+echo BOOTPROTO=static >> options
+echo 172.16.254.5/30 > ipv4address
+systemctl restart network
+```
+
+Проверить получения ip-адреса на интерфейсе ens21:
+
+```bash
+ip -br -c a
+```
+
+### Шаг 2. Настройка конфигурации br-rtr
 
 #### 2.1. Настройка hostname
 
 ```bash
+enable
 configure terminal
-hostname ecorouter-lab
+hostname br-rtr
 ```
 
 #### 2.2. Создание интерфейсов
 
 ```bash
+# Создание интерфейса для подключения к шлюзу 
+interface gateway
+ip address 172.16.254.6/30
+no shutdown
+description to gateway
+
 # Создание интерфейса для локальной сети
-interface e1
-ip address 192.168.1.1/24
+interface br
+ip address 192.168.252.1/24
 no shutdown
-description Local Network Interface
+description br network
 
-# Создание интерфейса для внешней сети
-interface e2
-ip address 10.0.0.1/30
-no shutdown
-description Internet Interface
 
-# Создание loopback интерфейса
-interface loopback.0
-ip address 1.1.1.1/32
-no shutdown
-description Management Interface
-```
-
-#### 2.3. Настройка портов и сервисных интерфейсов
+#### 2.3. Настройка связи портов и интерфейсов через сервисные интерфейсы
 
 ```bash
 # Настройка порта для локальной сети
-port ge0
-service-instance lan
-encapsulation untagged
-connect ip interface e1
-
-# Настройка порта для внешней сети
-port ge1
+port te0
 service-instance wan
 encapsulation untagged
-connect ip interface e2
+connect ip interface gateway
+
+# Настройка порта для внешней сети
+port te1
+service-instance lan
+encapsulation untagged
+connect ip interface br
+```
+
+#### 2.4 Проверка корректности настройки интерфейсов:
+
+```bash
+# вывести список интерфейсов
+show ip interface brief
+# проверить связь с gw
+ping 172.16.254.5
 ```
 
 ### Шаг 3. Настройка DHCP сервера
@@ -91,7 +129,7 @@ connect ip interface e2
 
 ```bash
 # Создание пула IP-адресов для клиентов
-ip pool CLIENT_POOL 192.168.1.100-192.168.1.200
+ip pool BR 192.168.252.3-192.168.252.100
 ```
 
 #### 3.2. Настройка DHCP сервера
@@ -100,15 +138,23 @@ ip pool CLIENT_POOL 192.168.1.100-192.168.1.200
 # Создание DHCP сервера
 dhcp-server 1
 
-# Настройка пула адресов
-pool CLIENT_POOL 10
+# Настройка статической записи
+static ip 192.168.252.2
 mask 24
-gateway 192.168.1.1
-dns 8.8.8.8 8.8.4.4
+gateway 192.168.252.1
+dns 8.8.8.8
+client-id mac #указать mac адрес клиентского хоста
+exit # выйти из настройки статической выдачи
+
+# Настройка пула адресов
+pool br 1
+mask 24
+gateway 192.168.252.1
+dns 8.8.8.8,8.8.4.4
 lease 3600
 
 # Привязка сервера к интерфейсу локальной сети
-interface e1
+interface br
 dhcp-server 1
 ```
 
@@ -118,11 +164,11 @@ dhcp-server 1
 
 ```bash
 # Настройка внутреннего интерфейса
-interface e1
+interface br
 ip nat inside
 
 # Настройка внешнего интерфейса
-interface e2
+interface gateway
 ip nat outside
 ```
 
@@ -130,63 +176,23 @@ ip nat outside
 
 ```bash
 # Создание пула внешних адресов
-ip nat pool INTERNET_POOL 10.0.0.100-10.0.0.200
+ip nat pool NAT 192.168.252.2-192.168.252.253
 ```
 
 #### 4.3. Настройка динамической трансляции с перегрузкой
 
 ```bash
 # Настройка PAT (Port Address Translation)
-ip nat source dynamic inside pool INTERNET_POOL overload 10.0.0.1
+ip nat source dynamic inside-to-outside pool NAT overload interface gateway
 ```
 
 
 ### Шаг 5. Проверка конфигурации
 
-#### 5.1. Проверка интерфейсов
+Выполнить аналогичные действия для сети hq.
 
-```bash
-show interface
-show interface brief
-show port
-```
+на gateway установить и настроить **iptables**
 
-#### 5.2. Проверка DHCP сервера
-
-```bash
-show dhcp-server clients e1
-show ip pool
-```
-
-#### 5.3. Проверка NAT трансляции
-
-```bash
-show ip nat translations
-```
-
-#### 5.4. Проверка таблицы маршрутизации
-
-```bash
-show ip route
-```
-
-#### 5.5. Диагностика сети
-
-```bash
-# Проверка подключенных пользователей
-show users connected
-
-# Проверка логов
-show log
-
-# Пинг локальных устройств
-ping 192.168.1.10
-ping 192.168.1.100
-
-# Пинг внешних ресурсов
-ping 8.8.8.8
-ping ya.ru
-```
 
 ## Контрольные вопросы:
 
