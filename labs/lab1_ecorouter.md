@@ -187,7 +187,7 @@ ip nat source dynamic inside-to-outside pool NAT overload interface gateway
 ```
 
 
-### Шаг 5. Проверка конфигурации
+### Шаг 5. Закончить настройку сети
 
 Выполнить аналогичные действия для сети hq.
 
