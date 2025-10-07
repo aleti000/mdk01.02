@@ -96,7 +96,7 @@ interface br
 ip address 192.168.252.1/24
 no shutdown
 description br network
-
+```
 
 #### 2.3. Настройка связи портов и интерфейсов через сервисные интерфейсы
 
